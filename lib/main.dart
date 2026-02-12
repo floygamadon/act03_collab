@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 
 void main() => runApp(const ValentineApp());
@@ -22,9 +23,68 @@ class ValentineHome extends StatefulWidget {
   State<ValentineHome> createState() => _ValentineHomeState();
 }
 
-class _ValentineHomeState extends State<ValentineHome> {
+class _ValentineHomeState extends State<ValentineHome>
+    with TickerProviderStateMixin {
   final List<String> emojiOptions = ['Sweet Heart', 'Party Heart'];
   String selectedEmoji = 'Sweet Heart';
+
+  late AnimationController pulseController;
+  late Animation<double> scaleAnimation;
+
+  late AnimationController sparkleController;
+  late AnimationController balloonController;
+
+  double pulseSpeed = 1.0;
+  bool showBalloons = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
+
+    scaleAnimation = Tween(begin: 1.0, end: 1.15).animate(
+      CurvedAnimation(parent: pulseController, curve: Curves.easeInOut),
+    );
+
+    sparkleController =
+        AnimationController(vsync: this, duration: const Duration(seconds: 2))
+          ..repeat();
+
+    balloonController =
+        AnimationController(vsync: this, duration: const Duration(seconds: 4))
+          ..addStatusListener((status) {
+            // ✅ After balloons finish, hide them automatically
+            if (status == AnimationStatus.completed) {
+              setState(() => showBalloons = false);
+            }
+          });
+  }
+
+  void togglePulse() {
+    if (pulseController.isAnimating) {
+      pulseController.stop();
+    } else {
+      pulseController.repeat(reverse: true);
+    }
+  }
+
+  // ✅ Balloon Celebration button triggers drop animation
+  void triggerBalloons() {
+    setState(() => showBalloons = true);
+    balloonController.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    pulseController.dispose();
+    sparkleController.dispose();
+    balloonController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,20 +93,90 @@ class _ValentineHomeState extends State<ValentineHome> {
       body: Column(
         children: [
           const SizedBox(height: 16),
+
           DropdownButton<String>(
             value: selectedEmoji,
             items: emojiOptions
                 .map((e) => DropdownMenuItem(value: e, child: Text(e)))
                 .toList(),
-            onChanged: (value) => setState(() => selectedEmoji = value ?? selectedEmoji),
+            onChanged: (value) =>
+                setState(() => selectedEmoji = value ?? selectedEmoji),
           ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: Center(
-              child: CustomPaint(
-                size: const Size(300, 300),
-                painter: HeartEmojiPainter(type: selectedEmoji),
+
+          const SizedBox(height: 10),
+
+          // ✅ Pulse button
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              ElevatedButton(
+                onPressed: togglePulse,
+                child: Text(pulseController.isAnimating ? "Stop Pulse" : "Pulse ❤️"),
               ),
+              const SizedBox(width: 12),
+
+              // ✅ Balloon Celebration button
+              ElevatedButton(
+                onPressed: triggerBalloons,
+                child: const Text("Balloons 🎈"),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 8),
+
+          // ✅ SHORTER Pulse Slider (fixed width)
+          SizedBox(
+            width: 220, // <--- shorter slider length
+            child: Slider(
+              value: pulseSpeed,
+              min: 0.5,
+              max: 2,
+              onChanged: (val) {
+                setState(() {
+                  pulseSpeed = val;
+                  pulseController.duration =
+                      Duration(milliseconds: (800 / pulseSpeed).round());
+                });
+              },
+            ),
+          ),
+
+          Expanded(
+            child: AnimatedBuilder(
+              animation: sparkleController,
+              builder: (_, __) {
+                return Stack(
+                  children: [
+                    Center(
+                      child: ScaleTransition(
+                        scale: scaleAnimation,
+                        child: CustomPaint(
+                          size: const Size(300, 300),
+                          painter: HeartEmojiPainter(
+                            type: selectedEmoji,
+                            sparkleValue: sparkleController.value,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    // ✅ Balloon overlay (drops balloons top -> bottom)
+                    if (showBalloons)
+                      AnimatedBuilder(
+                        animation: balloonController,
+                        builder: (_, __) {
+                          return CustomPaint(
+                            size: Size.infinite,
+                            painter: BalloonPainter(
+                              progress: balloonController.value,
+                            ),
+                          );
+                        },
+                      ),
+                  ],
+                );
+              },
             ),
           ),
         ],
@@ -56,36 +186,66 @@ class _ValentineHomeState extends State<ValentineHome> {
 }
 
 class HeartEmojiPainter extends CustomPainter {
-  HeartEmojiPainter({required this.type});
+  HeartEmojiPainter({
+    required this.type,
+    required this.sparkleValue,
+  });
+
   final String type;
+  final double sparkleValue;
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final paint = Paint()..style = PaintingStyle.fill;
 
-    // Heart base
     final heartPath = Path()
       ..moveTo(center.dx, center.dy + 60)
-      ..cubicTo(center.dx + 110, center.dy - 10, center.dx + 60, center.dy - 120, center.dx, center.dy - 40)
-      ..cubicTo(center.dx - 60, center.dy - 120, center.dx - 110, center.dy - 10, center.dx, center.dy + 60)
+      ..cubicTo(center.dx + 110, center.dy - 10, center.dx + 60,
+          center.dy - 120, center.dx, center.dy - 40)
+      ..cubicTo(center.dx - 60, center.dy - 120, center.dx - 110,
+          center.dy - 10, center.dx, center.dy + 60)
       ..close();
 
-    paint.color = type == 'Party Heart' ? const Color(0xFFF48FB1) : const Color(0xFFE91E63);
+    // Love aura trail
+    final auraPaint = Paint()
+      ..color = Colors.white.withOpacity(0.2)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 15;
+    canvas.drawPath(heartPath, auraPaint);
+
+    final gradient = LinearGradient(
+      colors: type == 'Party Heart'
+          ? [Colors.pinkAccent, Colors.orange]
+          : [Colors.red, Colors.pinkAccent],
+    );
+
+    final paint = Paint()
+      ..shader = gradient.createShader(
+        Rect.fromCenter(center: center, width: 200, height: 200),
+      );
+
     canvas.drawPath(heartPath, paint);
 
-    // Face features (starter)
+    // Eyes
     final eyePaint = Paint()..color = Colors.white;
     canvas.drawCircle(Offset(center.dx - 30, center.dy - 10), 10, eyePaint);
     canvas.drawCircle(Offset(center.dx + 30, center.dy - 10), 10, eyePaint);
 
+    // Mouth
     final mouthPaint = Paint()
       ..color = Colors.black
       ..style = PaintingStyle.stroke
       ..strokeWidth = 4;
-    canvas.drawArc(Rect.fromCircle(center: Offset(center.dx, center.dy + 20), radius: 30), 0, 3.14, false, mouthPaint);
 
-    // Party hat placeholder (expand for confetti)
+    canvas.drawArc(
+      Rect.fromCircle(center: Offset(center.dx, center.dy + 20), radius: 30),
+      0,
+      pi,
+      false,
+      mouthPaint,
+    );
+
+    // Party heart extras
     if (type == 'Party Heart') {
       final hatPaint = Paint()..color = const Color(0xFFFFD54F);
       final hatPath = Path()
@@ -94,9 +254,110 @@ class HeartEmojiPainter extends CustomPainter {
         ..lineTo(center.dx + 40, center.dy - 40)
         ..close();
       canvas.drawPath(hatPath, hatPaint);
+
+      drawConfetti(canvas, size);
+    }
+
+    drawSparkles(canvas, center);
+  }
+
+  void drawConfetti(Canvas canvas, Size size) {
+    final rand = Random(1);
+
+    for (int i = 0; i < 20; i++) {
+      final paint =
+          Paint()..color = Colors.primaries[i % Colors.primaries.length];
+
+      final dx = rand.nextDouble() * size.width;
+      final dy = rand.nextDouble() * size.height;
+
+      if (i % 2 == 0) {
+        canvas.drawCircle(Offset(dx, dy), 4, paint);
+      } else {
+        final path = Path()
+          ..moveTo(dx, dy)
+          ..lineTo(dx + 6, dy)
+          ..lineTo(dx + 3, dy - 6)
+          ..close();
+        canvas.drawPath(path, paint);
+      }
+    }
+  }
+
+  void drawSparkles(Canvas canvas, Offset center) {
+    final sparklePaint = Paint()
+      ..color = const Color(0xFFAD1457) // deep pink
+      ..strokeWidth = 2;
+
+    for (int i = 0; i < 8; i++) {
+      final angle = (i / 8) * 2 * pi + sparkleValue * 2 * pi;
+      final dx = center.dx + cos(angle) * 120;
+      final dy = center.dy + sin(angle) * 120;
+
+      canvas.drawCircle(Offset(dx, dy), 3, sparklePaint);
+      canvas.drawLine(
+        Offset(dx - 5, dy),
+        Offset(dx + 5, dy),
+        sparklePaint,
+      );
+      canvas.drawLine(
+        Offset(dx, dy - 5),
+        Offset(dx, dy + 5),
+        sparklePaint,
+      );
     }
   }
 
   @override
-  bool shouldRepaint(covariant HeartEmojiPainter oldDelegate) => oldDelegate.type != type;
+  bool shouldRepaint(covariant HeartEmojiPainter oldDelegate) =>
+      oldDelegate.type != type || oldDelegate.sparkleValue != sparkleValue;
 }
+
+class BalloonPainter extends CustomPainter {
+  final double progress;
+
+  BalloonPainter({required this.progress});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final colors = [Colors.red, Colors.blue, Colors.pink, Colors.purple, Colors.orange, Colors.green];
+
+    // ✅ Balloons start above the screen and drop down
+    for (int i = 0; i < 6; i++) {
+      final paint = Paint()..color = colors[i % colors.length];
+
+      final dx = (i + 1) * size.width / 7;
+
+      // startY is above screen, endY is below
+      final startY = -80.0 - (i * 40);
+      final endY = size.height + 120;
+      final dy = startY + (endY - startY) * progress;
+
+      // balloon body
+      canvas.drawOval(
+        Rect.fromCenter(center: Offset(dx, dy), width: 40, height: 60),
+        paint,
+      );
+
+      // highlight
+      canvas.drawOval(
+        Rect.fromCenter(center: Offset(dx - 8, dy - 10), width: 10, height: 14),
+        Paint()..color = Colors.white.withOpacity(0.35),
+      );
+
+      // string
+      canvas.drawLine(
+        Offset(dx, dy + 30),
+        Offset(dx, dy + 90),
+        Paint()
+          ..color = Colors.white
+          ..strokeWidth = 2,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant BalloonPainter oldDelegate) =>
+      oldDelegate.progress != progress;
+}
+
